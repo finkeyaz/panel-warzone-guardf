@@ -1,0 +1,1389 @@
+// EMU_AUTH_TOKEN_V1
+(function () {
+    if (window.__wzPanelCleanup) window.__wzPanelCleanup();
+
+    const S = {
+        fly: false,
+        speed: 1,
+        aim: false,
+        aimSmooth: 0.3,
+        aimTargetHead: true,
+        triggerbot: false,
+        triggerFov: 60,
+        autoShoot: false,
+        freeze: false,
+        esp: false,
+        espLines: false,
+        espHealth: false,
+        espBox3d: false,
+        wallhack: false,
+        fullbright: false,
+        removeFog: false,
+        nightMode: false,
+        nightVision: false,
+        rainbowWeapon: false,
+        weaponPulse: false,
+        weaponSkin: 'reset',
+        pov: 75,
+        crosshairColor: '#00ff88',
+        crosshairSize: 24,
+        crosshairStyle: '+',
+        radar: false,
+        radarRange: 60,
+        skyColor: '#0c0e12',
+        fogColor: '#0c0e12',
+        fogDensity: 50,
+        ambientIntensity: 0.5,
+        floorColor: '#111318',
+        ghostMode: false,
+        botAggro: true,
+        spinBot: false,
+        spinSpeed: 5,
+        thirdPerson: false,
+        tpDistance: 3,
+        noRecoil: false,
+        autoReload: false,
+        killAura: false,
+        killAuraRange: 3,
+        brightness: 1.0,
+        saturation: 1.0,
+        espColor: '#00ff88',
+        espBoxStyle: '2d',
+        espSnaplines: false,
+        radarZoom: 1.5,
+        radarShowBuildings: true,
+        radarShowCovers: true,
+        flashEffect: false,
+        hitMarker: false,
+        chromeMode: false,
+        wireframe: false,
+        bigHead: false,
+        speedLines: false,
+        thirdPersonDist: 4,
+    };
+
+    const pKeys = {};
+    const frozenPositions = new Map();
+    const espHelpers = new Map();
+    const espLineObjs = [];
+    const espHealthEls = [];
+    const origMats = new WeakMap();
+    const wallSaved = new Map();
+    const espBox3DObjs = [];
+    const snapLineObjs = [];
+    let rightMouseDown = false;
+    let leftMouseDown = false;
+    let animId = null;
+    let hue = 0;
+    let dragging = false;
+    let dragX = 0, dragY = 0;
+    let triggerActive = false;
+    let savedFog = null;
+    let savedAmbientInt = null;
+    let savedDirLight = null;
+    let savedFloor = null;
+    let extraLight = null;
+    let nightLight = null;
+    let savedSceneBg = null;
+    let radarCanvas = null;
+    let nvOverlay = null;
+    let hitMarkerEl = null;
+    let speedLinesEl = null;
+    let origBotScale = new Map();
+
+    const root = document.createElement('div');
+    root.id = 'wz-panel-v5';
+
+    root.innerHTML = `
+    <style>
+        #wz-p{position:fixed;top:60px;left:50px;width:780px;height:560px;z-index:999999;overflow:hidden;color:#e0f0ff;background:#080d15;border:2px solid #00e5ff;border-radius:14px;box-shadow:0 0 60px rgba(0,229,255,.3),inset 0 0 30px rgba(0,229,255,.05);font-family:Consolas,'Courier New',monospace;transition:opacity .25s}
+        #wz-p.hidden{opacity:0;pointer-events:none}
+        #wz-h{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;cursor:move;background:linear-gradient(90deg,#040810,#0a1020);border-bottom:1px solid #1a3050}
+        #wz-h b{color:#00e5ff;letter-spacing:2px;text-shadow:0 0 12px #00e5ff;font-size:13px}
+        #wz-h .wz-ver{color:#445;font-size:10px;margin-left:8px}
+        #wz-x{color:#ff6666;cursor:pointer;font-size:18px;font-weight:bold;padding:0 4px;transition:.15s}
+        #wz-x:hover{color:#ff3333;text-shadow:0 0 8px #ff3333}
+        #wz-st{padding:8px 18px;color:#77ffb1;background:#060f18;border-bottom:1px solid #153040;font-size:11px;font-weight:bold;display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px}
+        .wz-t{display:flex;background:#040810;border-bottom:1px solid #183050;overflow-x:auto;scrollbar-width:none}
+        .wz-t::-webkit-scrollbar{display:none}
+        .wz-tb{flex:0 0 auto;padding:10px 14px;color:#6a8099;background:transparent;border:0;border-bottom:2px solid transparent;cursor:pointer;font:700 10px Consolas,'Courier New',monospace;transition:.15s;white-space:nowrap}
+        .wz-tb.active,.wz-tb:hover{color:#00e5ff;background:rgba(0,229,255,.07);border-bottom-color:#00e5ff}
+        .wz-bd{height:380px;padding:14px;overflow:auto;scrollbar-width:thin;scrollbar-color:#1a3050 transparent}
+        .wz-bd::-webkit-scrollbar{width:5px}
+        .wz-bd::-webkit-scrollbar-thumb{background:#1a3050;border-radius:4px}
+        .wz-pg{display:none}.wz-pg.active{display:block}
+        .wz-g{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+        .wz-c{padding:12px;background:#060b12;border:1px solid #183050;border-radius:9px;transition:border-color .2s}
+        .wz-c:hover{border-color:#2a5070}
+        .wz-c h3{margin:0 0 8px;color:#71ffc0;font-size:10px;letter-spacing:1.5px;text-transform:uppercase}
+        .wz-r{display:flex;align-items:center;justify-content:space-between;gap:6px;margin:7px 0;font-size:11px}
+        .wz-sw{position:relative;width:38px;height:20px;flex-shrink:0}
+        .wz-sw input{opacity:0;width:0;height:0}
+        .wz-sl{position:absolute;inset:0;border:1px solid #304860;border-radius:20px;background:#1a2838;cursor:pointer;transition:.2s}
+        .wz-sl::before{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#668;transition:.2s}
+        .wz-sw input:checked+.wz-sl{background:#00b870;border-color:#00ff9d}
+        .wz-sw input:checked+.wz-sl::before{transform:translateX(18px);background:#fff}
+        .wz-rg{width:120px;accent-color:#00e5ff;cursor:pointer}
+        .wz-btn{width:100%;margin-top:5px;padding:7px;color:#00e5ff;background:#0c1a2a;border:1px solid #20506a;border-radius:6px;cursor:pointer;font:700 10px Consolas,'Courier New',monospace;transition:.15s;text-transform:uppercase;letter-spacing:.5px}
+        .wz-btn:hover{color:#060d15;background:#00e5ff;border-color:#00e5ff}
+        .wz-btn.red{color:#ff6666;border-color:#6a2030}.wz-btn.red:hover{color:#fff;background:#cc2244}
+        .wz-btn.gold{color:#ffd700;border-color:#6a5a10}.wz-btn.gold:hover{color:#060d15;background:#ffd700}
+        .wz-btn.purple{color:#bb66ff;border-color:#553080}.wz-btn.purple:hover{color:#fff;background:#9944dd}
+        .wz-btn.green{color:#66ff88;border-color:#206030}.wz-btn.green:hover{color:#060d15;background:#44dd66}
+        .wz-info{color:#5a7890;font-size:10px;line-height:1.5;margin-top:4px}
+        .wz-skin-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px;margin-top:6px}
+        .wz-full{grid-column:1/-1}
+        .wz-sep{border:0;border-top:1px solid #152535;margin:8px 0}
+        input[type="color"]{width:36px;height:22px;border:1px solid #304860;background:transparent;cursor:pointer;border-radius:4px;padding:0}
+        .wz-label{color:#809bb0;font-size:10px}
+        .wz-badge{display:inline-block;padding:1px 6px;border-radius:8px;font-size:9px;font-weight:700;margin-left:4px}
+        .wz-badge.on{background:#003320;color:#00ff88;border:1px solid #00ff88}
+        .wz-badge.off{background:#331010;color:#ff6666;border:1px solid #662020}
+    </style>
+
+    <div id="wz-p">
+        <div id="wz-h">
+            <b>WARZONE PANEL <span class="wz-ver">v5.0 ULTIMATE</span></b>
+            <span id="wz-x">&#10005;</span>
+        </div>
+        <div id="wz-st">
+            <span>F=FLY | RMB=AIM | F10=TOGGLE PANEL | T=TRIGGERBOT</span>
+            <span id="wz-pos">X:0 Y:0 Z:0 | FPS:--</span>
+        </div>
+        <div class="wz-t">
+            <button class="wz-tb active" data-p="pg-player">JOUEUR</button>
+            <button class="wz-tb" data-p="pg-weapons">ARMES</button>
+            <button class="wz-tb" data-p="pg-combat">COMBAT</button>
+            <button class="wz-tb" data-p="pg-visual">VISUEL</button>
+            <button class="wz-tb" data-p="pg-radar">RADAR</button>
+            <button class="wz-tb" data-p="pg-world">MONDE</button>
+            <button class="wz-tb" data-p="pg-ai">IA</button>
+        </div>
+        <div class="wz-bd">
+
+            <section class="wz-pg active" id="pg-player">
+                <div class="wz-g">
+                    <div class="wz-c">
+                        <h3>Deplacement</h3>
+                        <div class="wz-r"><span>Fly mode</span><b id="wz-fly" class="wz-badge off">OFF</b></div>
+                        <div class="wz-r"><span>Speed <b id="wz-sv">1.0x</b></span><input id="wz-sp" class="wz-rg" type="range" min="1" max="15" step="0.5" value="1"></div>
+                        <div class="wz-r"><span>Spin bot</span><label class="wz-sw"><input id="wz-spin" type="checkbox"><span class="wz-sl"></span></label></div>
+                        <div class="wz-r"><span>Spin speed <b id="wz-spinv">5</b></span><input id="wz-spins" class="wz-rg" type="range" min="1" max="20" step="1" value="5"></div>
+                        <p class="wz-info">F=fly, Space=monter, Ctrl=descendre</p>
+                    </div>
+                    <div class="wz-c">
+                        <h3>Camera</h3>
+                        <div class="wz-r"><span>FOV <b id="wz-povv">75</b></span><input id="wz-pov" class="wz-rg" type="range" min="30" max="179" value="75"></div>
+                        <div class="wz-r"><span>Aim smooth <b id="wz-asv">0.30</b></span><input id="wz-asm" class="wz-rg" type="range" min="0.05" max="1" step="0.05" value="0.3"></div>
+                        <div class="wz-r"><span>3rd Person</span><label class="wz-sw"><input id="wz-tp" type="checkbox"><span class="wz-sl"></span></label></div>
+                        <div class="wz-r"><span>TP Distance <b id="wz-tpdv">4</b></span><input id="wz-tpd" class="wz-rg" type="range" min="2" max="15" step="1" value="4"></div>
+                        <p class="wz-info">3rd person = camera derriere toi</p>
+                    </div>
+                    <div class="wz-c wz-full">
+                        <h3>Teleport Rapide</h3>
+                        <div style="display:flex;gap:6px;flex-wrap:wrap">
+                            <button class="wz-btn" id="wz-tp-near" style="flex:1;min-width:120px">TP Bot proche</button>
+                            <button class="wz-btn" id="wz-tp-center" style="flex:1;min-width:120px">TP Centre</button>
+                            <button class="wz-btn" id="wz-tp-fwd" style="flex:1;min-width:120px">TP 20m devant</button>
+                            <button class="wz-btn purple" id="wz-tp-rand" style="flex:1;min-width:120px">TP Aleatoire</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="wz-pg" id="pg-weapons">
+                <div class="wz-g">
+                    <div class="wz-c">
+                        <h3>Skin AK-47</h3>
+                        <div class="wz-skin-grid">
+                            <button class="wz-btn" data-skin="cyan">Cyan</button>
+                            <button class="wz-btn gold" data-skin="gold">Or</button>
+                            <button class="wz-btn red" data-skin="red">Rouge</button>
+                            <button class="wz-btn green" data-skin="emerald">Emeraude</button>
+                            <button class="wz-btn purple" data-skin="purple">Violet</button>
+                            <button class="wz-btn" data-skin="ice">Glace</button>
+                        </div>
+                        <div class="wz-skin-grid" style="margin-top:4px">
+                            <button class="wz-btn" data-skin="pink">Rose</button>
+                            <button class="wz-btn" data-skin="lava">Lave</button>
+                            <button class="wz-btn" data-skin="toxic">Toxique</button>
+                        </div>
+                        <button class="wz-btn" data-skin="reset" style="margin-top:6px">Reinitialiser</button>
+                    </div>
+                    <div class="wz-c">
+                        <h3>Effets Arme</h3>
+                        <div class="wz-r"><span>Rainbow camo</span><label class="wz-sw"><input id="wz-rb" type="checkbox"><span class="wz-sl"></span></label></div>
+                        <div class="wz-r"><span>Emissive boost</span><label class="wz-sw"><input id="wz-em" type="checkbox"><span class="wz-sl"></span></label></div>
+                        <div class="wz-r"><span>Weapon pulse</span><label class="wz-sw"><input id="wz-pulse" type="checkbox"><span class="wz-sl"></span></label></div>
+                        <div class="wz-r"><span>Chrome mode</span><label class="wz-sw"><input id="wz-chrome" type="checkbox"><span class="wz-sl"></span></label></div>
+                        <div class="wz-r"><span>Wireframe</span><label class="wz-sw"><input id="wz-wire" type="checkbox"><span class="wz-sl"></span></label></div>
+                        <p class="wz-info">Chrome = metal massif, Wireframe = mode debug</p>
+                    </div>
+                </div>
+            </section>
+
+            <section class="wz-pg" id="pg-combat">
+                <div class="wz-g">
+                    <div class="wz-c">
+                        <h3>Aim Assist</h3>
+                        <div class="wz-r"><span>Activer aim</span><label class="wz-sw"><input id="wz-aim" type="checkbox"><span class="wz-sl"></span></label></div>
+                        <div class="wz-r"><span>Target tete</span><label class="wz-sw"><input id="wz-head" type="checkbox" checked><span class="wz-sl"></span></label></div>
+                        <div class="wz-r"><span>Triggerbot</span><label class="wz-sw"><input id="wz-trig" type="checkbox"><span class="wz-sl"></span></label></div>
+                        <div class="wz-r"><span>Trigger FOV <b id="wz-trigv">60</b>px</span><input id="wz-trigs" class="wz-rg" type="range" min="20" max="200" step="10" value="60"></div>
+                        <p class="wz-info">Triggerbot = tire auto quand un bot est dans la croix</p>
+                    </div>
+                    <div class="wz-c">
+                        <h3>Ennemis</h3>
+                        <div class="wz-r"><span>Geler ennemis</span><label class="wz-sw"><input id="wz-frz" type="checkbox"><span class="wz-sl"></span></label></div>
+                        <div class="wz-r"><span>Big Head mode</span><label class="wz-sw"><input id="wz-bighead" type="checkbox"><span class="wz-sl"></span></label></div>
+                        <div class="wz-r"><span>Kill Aura</span><label class="wz-sw"><input id="wz-ka" type="checkbox"><span class="wz-sl"></span></label></div>
+                        <div class="wz-r"><span>KA Range <b id="wz-kav">3</b>m</span><input id="wz-kas" class="wz-rg" type="range" min="1" max="10" step="0.5" value="3"></div>
+                        <p class="wz-info">Kill Aura = degats automatiques proche</p>
+                    </div>
+                </div>
+            </section>
+
+            <section class="wz-pg" id="pg-visual">
+                <div class="wz-g">
+                    <div class="wz-c">
+                        <h3>ESP Options</h3>
+                        <div class="wz-r"><span>ESP Boites</span><label class="wz-sw"><input id="wz-esp" type="checkbox"><span class="wz-sl"></span></label></div>
+                        <div class="wz-r"><span>ESP 3D Boxes</span><label class="wz-sw"><input id="wz-esp3d" type="checkbox"><span class="wz-sl"></span></label></div>
+                        <div class="wz-r"><span>ESP Lignes</span><label class="wz-sw"><input id="wz-esp-l" type="checkbox"><span class="wz-sl"></span></label></div>
+                        <div class="wz-r"><span>Snap lines</span><label class="wz-sw"><input id="wz-snap" type="checkbox"><span class="wz-sl"></span></label></div>
+                        <div class="wz-r"><span>ESP Vie + Dist</span><label class="wz-sw"><input id="wz-esp-h" type="checkbox"><span class="wz-sl"></span></label></div>
+                        <div class="wz-r"><span>Couleur ESP</span><input id="wz-espcol" type="color" value="#00ff88"></div>
+                    </div>
+                    <div class="wz-c">
+                        <h3>Ambiance</h3>
+                        <div class="wz-r"><span>Full bright</span><label class="wz-sw"><input id="wz-fb" type="checkbox"><span class="wz-sl"></span></label></div>
+                        <div class="wz-r"><span>Supprimer brouillard</span><label class="wz-sw"><input id="wz-nf" type="checkbox"><span class="wz-sl"></span></label></div>
+                        <div class="wz-r"><span>Mode nuit</span><label class="wz-sw"><input id="wz-nm" type="checkbox"><span class="wz-sl"></span></label></div>
+                        <div class="wz-r"><span>Night vision</span><label class="wz-sw"><input id="wz-nv" type="checkbox"><span class="wz-sl"></span></label></div>
+                        <div class="wz-r"><span>Brightness <b id="wz-brv">1.0</b></span><input id="wz-br" class="wz-rg" type="range" min="0.1" max="3" step="0.1" value="1"></div>
+                        <div class="wz-r"><span>Saturation <b id="wz-satv">1.0</b></span><input id="wz-sat" class="wz-rg" type="range" min="0" max="3" step="0.1" value="1"></div>
+                    </div>
+                    <div class="wz-c">
+                        <h3>Murs</h3>
+                        <div class="wz-r"><span>Wallhack (X-Ray)</span><label class="wz-sw"><input id="wz-wh" type="checkbox"><span class="wz-sl"></span></label></div>
+                        <p class="wz-info">Rend les batiments semi-transparents</p>
+                        <h3 style="margin-top:10px">Crosshair</h3>
+                        <div class="wz-r"><span>Taille <b id="wz-chsv">24</b></span><input id="wz-chs" class="wz-rg" type="range" min="8" max="60" value="24"></div>
+                        <div class="wz-r"><span>Couleur</span><input id="wz-chc" type="color" value="#00ff88"></div>
+                        <div class="wz-r"><span>Style</span>
+                            <select id="wz-chst" style="background:#0c1a2a;color:#00e5ff;border:1px solid #20506a;border-radius:4px;padding:3px 6px;font:700 10px Consolas,monospace;cursor:pointer">
+                                <option value="+">+</option>
+                                <option value="o">o</option>
+                                <option value="x">x</option>
+                                <option value=".">.</option>
+                                <option value="*">*</option>
+                                <option value="&#9650;">&#9650;</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="wz-c">
+                        <h3>Effets Visuels</h3>
+                        <div class="wz-r"><span>Flash degats</span><label class="wz-sw"><input id="wz-flash" type="checkbox"><span class="wz-sl"></span></label></div>
+                        <div class="wz-r"><span>Hit marker</span><label class="wz-sw"><input id="wz-hitm" type="checkbox"><span class="wz-sl"></span></label></div>
+                        <div class="wz-r"><span>Speed lines</span><label class="wz-sw"><input id="wz-speedlines" type="checkbox"><span class="wz-sl"></span></label></div>
+                        <p class="wz-info">Flash = ecran rouge quand touché, Hitmarker = croix quand touché un bot, Speed lines = lignes quand rapide</p>
+                    </div>
+                </div>
+            </section>
+
+            <section class="wz-pg" id="pg-radar">
+                <div class="wz-g">
+                    <div class="wz-c">
+                        <h3>Radar</h3>
+                        <div class="wz-r"><span>Activer radar</span><label class="wz-sw"><input id="wz-radar" type="checkbox"><span class="wz-sl"></span></label></div>
+                        <div class="wz-r"><span>Zoom <b id="wz-rzoomv">1.5</b></span><input id="wz-rzoom" class="wz-rg" type="range" min="0.5" max="4" step="0.1" value="1.5"></div>
+                        <div class="wz-r"><span>Range <b id="wz-rrangev">60</b></span><input id="wz-rrange" class="wz-rg" type="range" min="20" max="150" step="10" value="60"></div>
+                        <div class="wz-r"><span>Show buildings</span><label class="wz-sw"><input id="wz-rbuild" type="checkbox" checked><span class="wz-sl"></span></label></div>
+                        <div class="wz-r"><span>Show covers</span><label class="wz-sw"><input id="wz-rcover" type="checkbox" checked><span class="wz-sl"></span></label></div>
+                        <p class="wz-info">Radar en bas a droite de l'ecran</p>
+                    </div>
+                    <div class="wz-c">
+                        <h3>Info</h3>
+                        <div class="wz-r"><span>Bots detectes</span><b id="wz-botcount" style="color:#00ff88">0</b></div>
+                        <div class="wz-r"><span>Pos X</span><b id="wz-info-x" style="color:#00e5ff">0</b></div>
+                        <div class="wz-r"><span>Pos Y</span><b id="wz-info-y" style="color:#00e5ff">0</b></div>
+                        <div class="wz-r"><span>Pos Z</span><b id="wz-info-z" style="color:#00e5ff">0</b></div>
+                        <div class="wz-r"><span>FPS</span><b id="wz-info-fps" style="color:#77ffb1">--</b></div>
+                        <hr class="wz-sep">
+                        <div class="wz-r"><span>Features actives</span><b id="wz-featurecount" style="color:#ffd700">0</b></div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="wz-pg" id="pg-world">
+                <div class="wz-g">
+                    <div class="wz-c">
+                        <h3>Ciel & Brouillard</h3>
+                        <div class="wz-r"><span>Couleur ciel</span><input id="wz-sky" type="color" value="#0c0e12"></div>
+                        <div class="wz-r"><span>Couleur brouillard</span><input id="wz-fogc" type="color" value="#0c0e12"></div>
+                        <div class="wz-r"><span>Densite <b id="wz-fogdv">50</b></span><input id="wz-fogd" class="wz-rg" type="range" min="5" max="200" step="5" value="50"></div>
+                        <div class="wz-r"><span>Far <b id="wz-fogfv">110</b></span><input id="wz-fogf" class="wz-rg" type="range" min="20" max="500" step="10" value="110"></div>
+                        <button class="wz-btn" id="wz-sky-reset">Reset Ciel</button>
+                    </div>
+                    <div class="wz-c">
+                        <h3>Eclairage</h3>
+                        <div class="wz-r"><span>Ambient <b id="wz-aintv">0.5</b></span><input id="wz-aint" class="wz-rg" type="range" min="0" max="3" step="0.1" value="0.5"></div>
+                        <div class="wz-r"><span>Directional <b id="wz-dlintv">0.7</b></span><input id="wz-dlint" class="wz-rg" type="range" min="0" max="3" step="0.1" value="0.7"></div>
+                        <div class="wz-r"><span>Couleur ambient</span><input id="wz-acol" type="color" value="#ffffff"></div>
+                        <div class="wz-r"><span>Couleur floor</span><input id="wz-fcol" type="color" value="#111318"></div>
+                        <button class="wz-btn" id="wz-light-reset">Reset Eclairage</button>
+                    </div>
+                </div>
+            </section>
+
+            <section class="wz-pg" id="pg-ai">
+                <div class="wz-g">
+                    <div class="wz-c">
+                        <h3>Spawn Items</h3>
+                        <button class="wz-btn gold" id="wz-sp-ak">Spawn AK-47</button>
+                        <button class="wz-btn" id="wz-sp-ammo">Spawn Munitions</button>
+                        <button class="wz-btn" id="wz-sp-plate">Spawn Plaque</button>
+                        <button class="wz-btn" id="wz-sp-stim">Spawn Stimulant</button>
+                    </div>
+                    <div class="wz-c">
+                        <h3>Gestion Bots</h3>
+                        <button class="wz-btn green" id="wz-sp-bot">Spawn 1 Bot</button>
+                        <button class="wz-btn green" id="wz-sp-bot5">Spawn 5 Bots</button>
+                        <button class="wz-btn red" id="wz-killall">Kill All (remove)</button>
+                        <button class="wz-btn purple" id="wz-tpbots">TP Bots vers toi</button>
+                        <div class="wz-r" style="margin-top:8px"><span>Bot dans scene</span><b id="wz-aicount" style="color:#00ff88">0</b></div>
+                    </div>
+                </div>
+            </section>
+
+        </div>
+    </div>`;
+
+    document.body.appendChild(root);
+
+    // ====================== HELPERS ======================
+
+    function getBots() {
+        const set = new Set();
+        scene.traverse((o) => {
+            if (o.name === 'botPlateVisual' && o.parent) set.add(o.parent);
+        });
+        return Array.from(set);
+    }
+
+    function getWeaponMats() {
+        const mats = [];
+        camera.children.forEach((child) => {
+            if (child.position.x <= 0.15) return;
+            child.traverse((o) => {
+                if (o.isMesh && o.material) {
+                    const list = Array.isArray(o.material) ? o.material : [o.material];
+                    list.forEach((m) => mats.push(m));
+                }
+            });
+        });
+        return mats;
+    }
+
+    function rememberMat(m) {
+        if (origMats.has(m)) return;
+        origMats.set(m, {
+            color: m.color ? m.color.clone() : null,
+            emissive: m.emissive ? m.emissive.clone() : null,
+            emissiveIntensity: m.emissiveIntensity,
+            metalness: m.metalness,
+            roughness: m.roughness,
+            transparent: m.transparent,
+            opacity: m.opacity,
+            wireframe: m.wireframe
+        });
+    }
+
+    function restoreMat(m) {
+        const s = origMats.get(m);
+        if (!s) return;
+        if (s.color && m.color) m.color.copy(s.color);
+        if (s.emissive && m.emissive) m.emissive.copy(s.emissive);
+        m.emissiveIntensity = s.emissiveIntensity;
+        m.metalness = s.metalness;
+        m.roughness = s.roughness;
+        m.transparent = s.transparent;
+        m.opacity = s.opacity;
+        m.wireframe = s.wireframe;
+    }
+
+    function worldToScreen(pos) {
+        const v = pos.clone().project(camera);
+        if (v.z > 1) return null;
+        return { x: (v.x * 0.5 + 0.5) * window.innerWidth, y: (-v.y * 0.5 + 0.5) * window.innerHeight };
+    }
+
+    // ====================== WEAPON SKINS ======================
+
+    const SKIN_COLORS = {
+        cyan: '#00e5ff', gold: '#ffd700', red: '#ff164f',
+        emerald: '#00ff66', purple: '#aa44ff', ice: '#88ddff',
+        pink: '#ff69b4', lava: '#ff4400', toxic: '#88ff00'
+    };
+
+    function applySkin(type) {
+        S.weaponSkin = type;
+        S.rainbowWeapon = false;
+        S.weaponPulse = false;
+        S.chromeMode = false;
+        S.wireframe = false;
+        ['wz-rb', 'wz-pulse', 'wz-chrome', 'wz-wire'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.checked = false;
+        });
+
+        getWeaponMats().forEach((m) => {
+            rememberMat(m);
+            if (type === 'reset') { restoreMat(m); return; }
+            if (m.color) m.color.set(SKIN_COLORS[type] || '#ffffff');
+            if (m.emissive) m.emissive.set(SKIN_COLORS[type] || '#ffffff');
+            m.emissiveIntensity = 0.75;
+            m.metalness = 0.9;
+            m.roughness = 0.25;
+            m.wireframe = false;
+        });
+    }
+
+    function updateWeaponFX() {
+        const mats = getWeaponMats();
+        const t = performance.now() * 0.001;
+
+        if (S.rainbowWeapon) {
+            hue = (hue + 3) % 360;
+            const c = new THREE.Color(`hsl(${hue}, 100%, 55%)`);
+            mats.forEach((m) => {
+                rememberMat(m);
+                if (m.color) m.color.copy(c);
+                if (m.emissive) m.emissive.copy(c);
+                m.emissiveIntensity = 0.85;
+                m.metalness = 0.9;
+            });
+        }
+
+        if (S.weaponPulse) {
+            const intensity = 0.3 + Math.sin(t * 3) * 0.7;
+            mats.forEach((m) => {
+                m.emissiveIntensity = intensity;
+                m.metalness = 0.85;
+            });
+        }
+
+        if (S.chromeMode) {
+            mats.forEach((m) => {
+                rememberMat(m);
+                if (m.color) m.color.set(0x888899);
+                m.metalness = 1.0;
+                m.roughness = 0.0;
+            });
+        }
+
+        if (S.wireframe) {
+            mats.forEach((m) => {
+                m.wireframe = true;
+            });
+        }
+    }
+
+    // ====================== FLY / SPEED ======================
+
+    function safeSpeedMove(dir, amt) {
+        if (amt <= 0) return;
+        const origin = camera.position.clone();
+        origin.y -= 0.35;
+        const rc = new THREE.Raycaster(origin, dir, 0, amt + 0.7);
+        const objs = scene.children.filter((o) => o !== camera);
+        const hits = rc.intersectObjects(objs, true);
+        if (hits.length && hits[0].distance < amt + 0.55) return;
+        camera.position.addScaledVector(dir, amt);
+    }
+
+    function updateMovement() {
+        if (S.speed <= 1 && !S.fly) return;
+        const fwd = new THREE.Vector3();
+        camera.getWorldDirection(fwd);
+        fwd.y = 0;
+        fwd.normalize();
+        const right = new THREE.Vector3(-fwd.z, 0, fwd.x);
+        const extra = 0.15 * Math.max(0, S.speed - 1);
+
+        if (pKeys.KeyW || pKeys.KeyZ) safeSpeedMove(fwd, extra);
+        if (pKeys.KeyS) safeSpeedMove(fwd, -extra);
+        if (pKeys.KeyA || pKeys.KeyQ) safeSpeedMove(right, -extra);
+        if (pKeys.KeyD) safeSpeedMove(right, extra);
+
+        if (S.fly) {
+            const fs = 0.12 * Math.max(1, S.speed);
+            if (pKeys.Space) camera.position.y += fs;
+            if (pKeys.ControlLeft || pKeys.ControlRight) camera.position.y -= fs;
+        }
+
+        if (camera.position.y < 0.5) camera.position.y = 0.5;
+    }
+
+    // ====================== SPIN BOT ======================
+
+    function updateSpinBot() {
+        if (!S.spinBot) return;
+        camera.rotation.order = 'YXZ';
+        camera.rotation.y += S.spinSpeed * 0.05;
+    }
+
+    // ====================== THIRD PERSON ======================
+
+    let tpCamHelper = null;
+
+    function updateThirdPerson() {
+        if (!S.thirdPerson) {
+            if (tpCamHelper) { tpCamHelper.visible = false; }
+            return;
+        }
+
+        if (!tpCamHelper) {
+            const geo = new THREE.SphereGeometry(0.3, 8, 8);
+            const mat = new THREE.MeshBasicMaterial({ color: 0x00ff88, transparent: true, opacity: 0.5 });
+            tpCamHelper = new THREE.Mesh(geo, mat);
+            scene.add(tpCamHelper);
+        }
+
+        const fwd = new THREE.Vector3();
+        camera.getWorldDirection(fwd);
+        fwd.y = 0;
+        fwd.normalize();
+
+        tpCamHelper.position.copy(camera.position).addScaledVector(fwd, S.thirdPersonDist);
+        tpCamHelper.position.y = camera.position.y;
+        tpCamHelper.visible = true;
+    }
+
+    // ====================== ESP ======================
+
+    function syncESP(bots) {
+        for (const [bot, helper] of espHelpers) {
+            if (!bots.includes(bot)) {
+                scene.remove(helper);
+                espHelpers.delete(bot);
+                frozenPositions.delete(bot);
+            }
+        }
+
+        const col = S.espColor ? parseInt(S.espColor.replace('#', ''), 16) : 0x00ff88;
+
+        bots.forEach((bot) => {
+            if (S.freeze) {
+                if (!frozenPositions.has(bot)) frozenPositions.set(bot, bot.position.clone());
+                bot.position.copy(frozenPositions.get(bot));
+            } else {
+                frozenPositions.delete(bot);
+            }
+
+            if (S.bigHead) {
+                const head = bot.children.find(c => c.position.y > 1.2);
+                if (head) {
+                    if (!origBotScale.has(head)) origBotScale.set(head, head.scale.clone());
+                    head.scale.set(2.5, 2.5, 2.5);
+                }
+            } else {
+                origBotScale.forEach((scale, obj) => { obj.scale.copy(scale); });
+            }
+
+            if (S.esp) {
+                let h = espHelpers.get(bot);
+                if (!h) {
+                    h = new THREE.BoxHelper(bot, col);
+                    h.material.depthTest = false;
+                    h.material.transparent = true;
+                    h.material.opacity = 0.9;
+                    espHelpers.set(bot, h);
+                    scene.add(h);
+                }
+                h.material.color.set(col);
+                h.visible = true;
+                h.update();
+            }
+        });
+
+        if (!S.esp) espHelpers.forEach((h) => { h.visible = false; });
+    }
+
+    function updateESPLines(bots) {
+        espLineObjs.forEach((l) => scene.remove(l));
+        espLineObjs.length = 0;
+        if (!S.espLines) return;
+
+        const col = S.espColor ? parseInt(S.espColor.replace('#', ''), 16) : 0x00ff88;
+
+        bots.forEach((bot) => {
+            const from = camera.position.clone();
+            const to = bot.position.clone();
+            to.y += 1;
+            const geo = new THREE.BufferGeometry().setFromPoints([from, to]);
+            const mat = new THREE.LineBasicMaterial({ color: col, depthTest: false, transparent: true, opacity: 0.5 });
+            const line = new THREE.Line(geo, mat);
+            scene.add(line);
+            espLineObjs.push(line);
+        });
+    }
+
+    function updateSnapLines(bots) {
+        snapLineObjs.forEach((l) => scene.remove(l));
+        snapLineObjs.length = 0;
+        if (!S.espSnaplines) return;
+
+        const col = S.espColor ? parseInt(S.espColor.replace('#', ''), 16) : 0x00ff88;
+
+        bots.forEach((bot) => {
+            const from = camera.position.clone();
+            from.y -= 1.5;
+            const to = bot.position.clone();
+            to.y += 0.5;
+            const geo = new THREE.BufferGeometry().setFromPoints([from, to]);
+            const mat = new THREE.LineBasicMaterial({ color: col, depthTest: false, transparent: true, opacity: 0.3 });
+            const line = new THREE.Line(geo, mat);
+            scene.add(line);
+            snapLineObjs.push(line);
+        });
+    }
+
+    function updateESPHealth(bots) {
+        espHealthEls.forEach((el) => el.remove());
+        espHealthEls.length = 0;
+        if (!S.espHealth) return;
+
+        bots.forEach((bot) => {
+            const headPos = bot.position.clone();
+            headPos.y += 2.3;
+            const screen = worldToScreen(headPos);
+            if (!screen) return;
+
+            const plate = bot.getObjectByName('botPlateVisual');
+            const hasPlate = plate && plate.visible;
+
+            const wrap = document.createElement('div');
+            wrap.style.cssText = `position:fixed;left:${screen.x - 30}px;top:${screen.y - 8}px;z-index:999997;pointer-events:none;display:flex;gap:4px;align-items:center`;
+
+            const bar = document.createElement('div');
+            bar.style.cssText = `width:44px;height:5px;background:#222;border:1px solid #444;border-radius:3px`;
+            const fill = document.createElement('div');
+            fill.style.cssText = `width:${hasPlate ? 100 : 33}%;height:100%;background:${hasPlate ? '#00aaff' : '#ff3333'};border-radius:2px`;
+            bar.appendChild(fill);
+
+            const dist = camera.position.distanceTo(bot.position).toFixed(1);
+            const txt = document.createElement('div');
+            txt.textContent = dist + 'm';
+            txt.style.cssText = `color:${S.espColor || '#00ff88'};font:700 10px Consolas,monospace;text-shadow:0 0 4px #000`;
+
+            wrap.appendChild(bar);
+            wrap.appendChild(txt);
+            document.body.appendChild(wrap);
+            espHealthEls.push(wrap);
+        });
+    }
+
+    // ====================== AIM ASSIST ======================
+
+    function aimAtEnemy(bots) {
+        if (!S.aim || !rightMouseDown || !bots.length) return;
+        let target = null;
+        let best = Infinity;
+        const aimY = S.aimTargetHead ? 1.6 : 1.0;
+
+        bots.forEach((bot) => {
+            const p = bot.position.clone();
+            p.y += aimY;
+            const d = camera.position.distanceTo(p);
+            if (d < best) { best = d; target = p; }
+        });
+        if (!target) return;
+
+        if (S.aimSmooth >= 0.95) {
+            camera.lookAt(target);
+        } else {
+            const dir = new THREE.Vector3().subVectors(target, camera.position).normalize();
+            const cur = new THREE.Vector3();
+            camera.getWorldDirection(cur);
+            const smoothed = cur.lerp(dir, S.aimSmooth).normalize();
+            camera.rotation.order = 'YXZ';
+            camera.rotation.y = Math.atan2(-smoothed.x, -smoothed.z);
+            camera.rotation.x = Math.asin(Math.max(-1, Math.min(1, smoothed.y)));
+        }
+    }
+
+    // ====================== TRIGGERBOT ======================
+
+    function triggerbot(bots) {
+        if (!S.triggerbot) {
+            if (triggerActive) {
+                document.dispatchEvent(new MouseEvent('mouseup', { button: 0 }));
+                triggerActive = false;
+            }
+            return;
+        }
+        if (!bots.length) { if (triggerActive) { document.dispatchEvent(new MouseEvent('mouseup', { button: 0 })); triggerActive = false; } return; }
+
+        let shouldShoot = false;
+        bots.forEach(bot => {
+            const p = bot.position.clone();
+            p.y += 1;
+            const s = worldToScreen(p);
+            if (!s) return;
+            const dx = s.x - window.innerWidth / 2;
+            const dy = s.y - window.innerHeight / 2;
+            if (Math.sqrt(dx * dx + dy * dy) < S.triggerFov) shouldShoot = true;
+        });
+
+        if (shouldShoot && !triggerActive) {
+            document.dispatchEvent(new MouseEvent('mousedown', { button: 0, bubbles: true }));
+            triggerActive = true;
+        } else if (!shouldShoot && triggerActive) {
+            document.dispatchEvent(new MouseEvent('mouseup', { button: 0 }));
+            triggerActive = false;
+        }
+    }
+
+    // ====================== KILL AURA ======================
+
+    function killAura(bots) {
+        if (!S.killAura || !bots.length) return;
+        const range = S.killAuraRange;
+        const forward = new THREE.Vector3();
+        camera.getWorldDirection(forward);
+
+        bots.forEach(bot => {
+            const dist = camera.position.distanceTo(bot.position);
+            if (dist > range) return;
+
+            const toBot = new THREE.Vector3().subVectors(bot.position, camera.position).normalize();
+            const dot = forward.dot(toBot);
+            if (dot < 0.3) return;
+
+            const plate = bot.getObjectByName('botPlateVisual');
+            if (plate && plate.visible) {
+                plate.visible = false;
+            } else {
+                bot.position.y = -50;
+            }
+        });
+    }
+
+    // ====================== WALLHACK ======================
+
+    function toggleWallhack(on) {
+        if (on) {
+            scene.traverse((o) => {
+                if (!o.isMesh) return;
+                if (o.parent && o.parent.name && o.parent.name.startsWith('house')) {
+                    rememberMat(o.material);
+                    o.material.transparent = true;
+                    o.material.opacity = 0.12;
+                    o.material.depthWrite = false;
+                    o.material.needsUpdate = true;
+                    wallSaved.set(o, true);
+                }
+            });
+        } else {
+            wallSaved.forEach((_, mesh) => {
+                restoreMat(mesh.material);
+                mesh.material.depthWrite = true;
+                mesh.material.needsUpdate = true;
+            });
+            wallSaved.clear();
+        }
+    }
+
+    // ====================== WORLD ======================
+
+    function applyWorld() {
+        if (S.skyColor) scene.background = new THREE.Color(S.skyColor);
+        if (scene.fog) {
+            scene.fog.color.set(S.fogColor || S.skyColor);
+            scene.fog.near = S.fogDensity;
+            scene.fog.far = S.fogFar || 110;
+        }
+        scene.traverse((o) => {
+            if (o.isAmbientLight) {
+                o.intensity = S.ambientIntensity;
+                o.color.set(document.getElementById('wz-acol')?.value || '#ffffff');
+            }
+            if (o.isDirectionalLight) {
+                o.intensity = S.dirLightIntensity || 0.7;
+            }
+        });
+        scene.traverse((o) => {
+            if (o.isMesh && o.geometry && o.geometry.type === 'PlaneGeometry' && o.rotation.x === -Math.PI / 2) {
+                rememberMat(o.material);
+                if (S.floorColor) o.material.color.set(S.floorColor);
+            }
+        });
+    }
+
+    function toggleFullbright(on) {
+        if (on) {
+            if (!extraLight) {
+                extraLight = new THREE.AmbientLight(0xffffff, 1.5);
+                scene.add(extraLight);
+            }
+        } else {
+            if (extraLight) { scene.remove(extraLight); extraLight = null; }
+        }
+    }
+
+    function toggleNightMode(on) {
+        if (on) {
+            savedSceneBg = scene.background ? scene.background.clone() : null;
+            scene.background = new THREE.Color(0x010108);
+            if (scene.fog) scene.fog.color.set(0x010108);
+            if (!nightLight) {
+                nightLight = new THREE.PointLight(0x4466ff, 2.5, 100);
+                scene.add(nightLight);
+            }
+        } else {
+            if (savedSceneBg) scene.background = savedSceneBg;
+            else scene.background = new THREE.Color(S.skyColor || 0x0c0e12);
+            if (scene.fog) scene.fog.color.set(S.fogColor || 0x0c0e12);
+            if (nightLight) { scene.remove(nightLight); nightLight = null; }
+        }
+    }
+
+    function toggleNightVision(on) {
+        if (!nvOverlay) {
+            nvOverlay = document.createElement('div');
+            nvOverlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,255,0,0.06);pointer-events:none;z-index:999996;display:none;mix-blend-mode:multiply';
+            document.body.appendChild(nvOverlay);
+        }
+        nvOverlay.style.display = on ? 'block' : 'none';
+    }
+
+    // ====================== CROSSHAIR ======================
+
+    function updateCrosshair() {
+        const ch = document.getElementById('crosshair');
+        if (!ch) return;
+        ch.style.fontSize = S.crosshairSize + 'px';
+        ch.style.color = S.crosshairColor;
+        ch.style.textShadow = `0 0 6px ${S.crosshairColor}`;
+        ch.textContent = S.crosshairStyle;
+    }
+
+    // ====================== TELEPORT ======================
+
+    function tpNearestBot() {
+        const bots = getBots();
+        if (!bots.length) return;
+        let best = null, bestDist = Infinity;
+        bots.forEach((b) => { const d = camera.position.distanceTo(b.position); if (d < bestDist) { bestDist = d; best = b; } });
+        if (best) {
+            const dir = new THREE.Vector3(); camera.getWorldDirection(dir); dir.y = 0; dir.normalize();
+            camera.position.copy(best.position).addScaledVector(dir, 2.5);
+            camera.position.y = 1.7;
+        }
+    }
+
+    function tpRandom() {
+        const angle = Math.random() * Math.PI * 2;
+        const dist = 20 + Math.random() * 60;
+        camera.position.x = Math.cos(angle) * dist;
+        camera.position.z = Math.sin(angle) * dist;
+        camera.position.y = 1.7;
+    }
+
+    const GROUND_Y = 1.7;
+
+    // ====================== RADAR ======================
+
+    function ensureRadar() {
+        if (radarCanvas) return;
+        radarCanvas = document.createElement('canvas');
+        radarCanvas.width = 200;
+        radarCanvas.height = 200;
+        radarCanvas.style.cssText = 'position:fixed;bottom:20px;right:20px;border:2px solid #00e5ff;border-radius:10px;z-index:999998;background:rgba(0,0,0,0.75);box-shadow:0 0 20px rgba(0,229,255,0.2)';
+        document.body.appendChild(radarCanvas);
+    }
+
+    function drawRadar(bots) {
+        if (!S.radar) { if (radarCanvas) radarCanvas.style.display = 'none'; return; }
+        ensureRadar();
+        radarCanvas.style.display = 'block';
+
+        const ctx = radarCanvas.getContext('2d');
+        const w = radarCanvas.width, h = radarCanvas.height;
+        const scale = S.radarZoom;
+        const cx = w / 2, cy = h / 2;
+        const range = S.radarRange;
+
+        ctx.clearRect(0, 0, w, h);
+
+        ctx.fillStyle = 'rgba(0,5,15,0.85)';
+        ctx.fillRect(0, 0, w, h);
+
+        ctx.strokeStyle = '#0a2030';
+        ctx.lineWidth = 0.5;
+        for (let i = -range; i <= range; i += 10) {
+            const sx = cx + i * scale;
+            if (sx >= 0 && sx <= w) { ctx.beginPath(); ctx.moveTo(sx, 0); ctx.lineTo(sx, h); ctx.stroke(); }
+            const sy = cy + i * scale;
+            if (sy >= 0 && sy <= h) { ctx.beginPath(); ctx.moveTo(0, sy); ctx.lineTo(w, sy); ctx.stroke(); }
+        }
+
+        ctx.strokeStyle = '#1a4050';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(cx, cy, range * scale * 0.5, 0, Math.PI * 2);
+        ctx.stroke();
+
+        if (S.radarShowBuildings) {
+            scene.children.forEach(child => {
+                if (child.name && child.name.startsWith('house')) {
+                    child.updateMatrixWorld(true);
+                    try {
+                        const box = new THREE.Box3().setFromObject(child);
+                        const rx = cx + (box.min.x - camera.position.x) * scale;
+                        const ry = cy + (box.min.z - camera.position.z) * scale;
+                        const rw = (box.max.x - box.min.x) * scale;
+                        const rh = (box.max.z - box.min.z) * scale;
+                        ctx.fillStyle = 'rgba(30,45,65,0.5)';
+                        ctx.strokeStyle = '#3a6080';
+                        ctx.lineWidth = 1;
+                        ctx.fillRect(rx, ry, rw, rh);
+                        ctx.strokeRect(rx, ry, rw, rh);
+                    } catch (e) {}
+                }
+            });
+        }
+
+        bots.forEach(bot => {
+            const dx = (bot.position.x - camera.position.x) * scale;
+            const dz = (bot.position.z - camera.position.z) * scale;
+            const bx = cx + dx;
+            const by = cy + dz;
+            if (bx < -10 || bx > w + 10 || by < -10 || by > h + 10) return;
+
+            ctx.fillStyle = '#ff3344';
+            ctx.shadowColor = '#ff3344';
+            ctx.shadowBlur = 8;
+            ctx.beginPath();
+            ctx.arc(bx, by, 4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+        });
+
+        const fwd = new THREE.Vector3();
+        camera.getWorldDirection(fwd);
+        const pa = Math.atan2(fwd.x, fwd.z);
+
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(-pa);
+        ctx.fillStyle = '#00ff88';
+        ctx.shadowColor = '#00ff88';
+        ctx.shadowBlur = 10;
+        ctx.beginPath();
+        ctx.moveTo(0, -9);
+        ctx.lineTo(-6, 7);
+        ctx.lineTo(6, 7);
+        ctx.closePath();
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.restore();
+
+        ctx.strokeStyle = '#00e5ff';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(0, 0, w, h);
+
+        ctx.fillStyle = '#00e5ff';
+        ctx.font = '9px Consolas, monospace';
+        ctx.fillText(`R ${range}m`, 6, h - 8);
+    }
+
+    // ====================== FPS COUNTER ======================
+
+    let fpsFrames = 0;
+    let fpsLast = performance.now();
+    let fpsDisplay = 60;
+
+    function updateFPS() {
+        fpsFrames++;
+        const now = performance.now();
+        if (now - fpsLast >= 1000) {
+            fpsDisplay = fpsFrames;
+            fpsFrames = 0;
+            fpsLast = now;
+        }
+    }
+
+    // ====================== EFFECTS ======================
+
+    function createHitMarker() {
+        if (hitMarkerEl) return;
+        hitMarkerEl = document.createElement('div');
+        hitMarkerEl.innerHTML = '&#10005;';
+        hitMarkerEl.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);color:#fff;font-size:28px;pointer-events:none;z-index:999997;display:none;text-shadow:0 0 6px #ff3333;font-weight:900';
+        document.body.appendChild(hitMarkerEl);
+    }
+
+    function showHitMarker() {
+        if (!S.hitMarker || !hitMarkerEl) return;
+        hitMarkerEl.style.display = 'block';
+        setTimeout(() => { if (hitMarkerEl) hitMarkerEl.style.display = 'none'; }, 120);
+    }
+
+    function createSpeedLines() {
+        if (speedLinesEl) return;
+        speedLinesEl = document.createElement('div');
+        speedLinesEl.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:999996;display:none;background:radial-gradient(ellipse at center, transparent 40%, rgba(100,200,255,0.08) 100%)';
+        document.body.appendChild(speedLinesEl);
+    }
+
+    function updateSpeedLines() {
+        if (!speedLinesEl) createSpeedLines();
+        if (S.speedLines && (S.speed > 2 || S.fly)) {
+            speedLinesEl.style.display = 'block';
+        } else {
+            if (speedLinesEl) speedLinesEl.style.display = 'none';
+        }
+    }
+
+    // ====================== MAIN LOOP ======================
+
+    let prevBotsForHits = [];
+
+    function loop() {
+        try {
+            const bots = getBots();
+
+            if (S.hitMarker) {
+                bots.forEach(bot => {
+                    const plate = bot.getObjectByName('botPlateVisual');
+                    if (plate && !plate.visible) {
+                        if (!prevBotsForHits.includes(bot)) showHitMarker();
+                    }
+                });
+                prevBotsForHits = bots.slice();
+            }
+
+            updateMovement();
+            updateSpinBot();
+            updateWeaponFX();
+            updateThirdPerson();
+
+            if (!S.fly && camera.position.y < GROUND_Y) camera.position.y = GROUND_Y;
+            syncESP(bots);
+            updateESPLines(bots);
+            updateSnapLines(bots);
+            updateESPHealth(bots);
+            aimAtEnemy(bots);
+            triggerbot(bots);
+            killAura(bots);
+            updateSpeedLines();
+            updateFPS();
+            drawRadar(bots);
+
+            camera.fov = S.pov;
+            camera.updateProjectionMatrix();
+
+            if (nightLight) nightLight.position.copy(camera.position);
+
+            const p = camera.position;
+            const posEl = document.getElementById('wz-pos');
+            if (posEl) posEl.textContent = `X:${p.x.toFixed(1)} Y:${p.y.toFixed(1)} Z:${p.z.toFixed(1)} | FPS:${fpsDisplay}`;
+
+            const infoX = document.getElementById('wz-info-x');
+            const infoY = document.getElementById('wz-info-y');
+            const infoZ = document.getElementById('wz-info-z');
+            const infoFps = document.getElementById('wz-info-fps');
+            const botCountEl = document.getElementById('wz-botcount');
+            const aiCountEl = document.getElementById('wz-aicount');
+            const featCountEl = document.getElementById('wz-featurecount');
+            if (infoX) infoX.textContent = p.x.toFixed(1);
+            if (infoY) infoY.textContent = p.y.toFixed(1);
+            if (infoZ) infoZ.textContent = p.z.toFixed(1);
+            if (infoFps) infoFps.textContent = fpsDisplay;
+            if (botCountEl) botCountEl.textContent = bots.length;
+            if (aiCountEl) aiCountEl.textContent = bots.length;
+
+            let activeCount = 0;
+            ['fly', 'aim', 'triggerbot', 'freeze', 'esp', 'espLines', 'espHealth', 'wallhack', 'fullbright', 'nightMode', 'nightVision', 'rainbowWeapon', 'weaponPulse', 'spinBot', 'killAura', 'radar'].forEach(k => { if (S[k]) activeCount++; });
+            if (featCountEl) featCountEl.textContent = activeCount;
+
+            document.body.style.filter = '';
+            if (S.brightness !== 1.0 || S.saturation !== 1.0) {
+                document.body.style.filter = `brightness(${S.brightness}) saturate(${S.saturation})`;
+            }
+
+            animId = requestAnimationFrame(loop);
+        } catch (e) {
+            console.error('Panel v5 loop error:', e);
+            animId = requestAnimationFrame(loop);
+        }
+    }
+
+    // ====================== EVENTS ======================
+
+    function bindToggle(id, prop) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.addEventListener('change', (e) => { S[prop] = e.target.checked; });
+    }
+
+    bindToggle('wz-aim', 'aim');
+    bindToggle('wz-head', 'aimTargetHead');
+    bindToggle('wz-trig', 'triggerbot');
+    bindToggle('wz-frz', 'freeze');
+    bindToggle('wz-esp', 'esp');
+    bindToggle('wz-esp3d', 'espBox3d');
+    bindToggle('wz-esp-l', 'espLines');
+    bindToggle('wz-snap', 'espSnaplines');
+    bindToggle('wz-esp-h', 'espHealth');
+    bindToggle('wz-wh', 'wallhack');
+    bindToggle('wz-fb', 'fullbright');
+    bindToggle('wz-nf', 'removeFog');
+    bindToggle('wz-nm', 'nightMode');
+    bindToggle('wz-nv', 'nightVision');
+    bindToggle('wz-rb', 'rainbowWeapon');
+    bindToggle('wz-pulse', 'weaponPulse');
+    bindToggle('wz-chrome', 'chromeMode');
+    bindToggle('wz-wire', 'wireframe');
+    bindToggle('wz-spin', 'spinBot');
+    bindToggle('wz-tp', 'thirdPerson');
+    bindToggle('wz-bighead', 'bigHead');
+    bindToggle('wz-ka', 'killAura');
+    bindToggle('wz-radar', 'radar');
+    bindToggle('wz-rbuild', 'radarShowBuildings');
+    bindToggle('wz-rcover', 'radarShowCovers');
+    bindToggle('wz-flash', 'flashEffect');
+    bindToggle('wz-hitm', 'hitMarker');
+    bindToggle('wz-speedlines', 'speedLines');
+
+    function bindRange(id, prop, displayId, fmt) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.addEventListener('input', (e) => {
+            S[prop] = Number(e.target.value);
+            const d = document.getElementById(displayId);
+            if (d) d.textContent = fmt ? fmt(S[prop]) : S[prop];
+        });
+    }
+
+    bindRange('wz-sp', 'speed', 'wz-sv', v => v.toFixed(1) + 'x');
+    bindRange('wz-pov', 'pov', 'wz-povv');
+    bindRange('wz-asm', 'aimSmooth', 'wz-asv', v => v.toFixed(2));
+    bindRange('wz-trigs', 'triggerFov', 'wz-trigv');
+    bindRange('wz-spins', 'spinSpeed', 'wz-spinv');
+    bindRange('wz-tpd', 'thirdPersonDist', 'wz-tpdv');
+    bindRange('wz-kas', 'killAuraRange', 'wz-kav');
+    bindRange('wz-rzoom', 'radarZoom', 'wz-rzoomv');
+    bindRange('wz-rrange', 'radarRange', 'wz-rrangev');
+    bindRange('wz-fogd', 'fogDensity', 'wz-fogdv');
+    bindRange('wz-fogf', 'fogFar', 'wz-fogfv');
+    bindRange('wz-aint', 'ambientIntensity', 'wz-aintv');
+    bindRange('wz-dlint', 'dirLightIntensity', 'wz-dlintv');
+    bindRange('wz-chs', 'crosshairSize', 'wz-chsv');
+    bindRange('wz-br', 'brightness', 'wz-brv', v => v.toFixed(1));
+    bindRange('wz-sat', 'saturation', 'wz-satv', v => v.toFixed(1));
+
+    document.getElementById('wz-espcol')?.addEventListener('input', (e) => { S.espColor = e.target.value; });
+    document.getElementById('wz-chc')?.addEventListener('input', (e) => { S.crosshairColor = e.target.value; updateCrosshair(); });
+    document.getElementById('wz-chst')?.addEventListener('change', (e) => { S.crosshairStyle = e.target.value; updateCrosshair(); });
+
+    document.getElementById('wz-rb')?.addEventListener('change', (e) => { S.rainbowWeapon = e.target.checked; if (!S.rainbowWeapon) applySkin(S.weaponSkin); });
+    document.getElementById('wz-em')?.addEventListener('change', () => {
+        const on = document.getElementById('wz-em')?.checked;
+        getWeaponMats().forEach((m) => { m.emissiveIntensity = on ? 1.5 : 0.75; });
+    });
+
+    document.getElementById('wz-wh')?.addEventListener('change', (e) => toggleWallhack(e.target.checked));
+    document.getElementById('wz-fb')?.addEventListener('change', (e) => toggleFullbright(e.target.checked));
+    document.getElementById('wz-nm')?.addEventListener('change', (e) => toggleNightMode(e.target.checked));
+    document.getElementById('wz-nv')?.addEventListener('change', (e) => toggleNightVision(e.target.checked));
+    document.getElementById('wz-nf')?.addEventListener('change', (e) => {
+        if (e.target.checked) {
+            if (scene.fog) { savedFog = { near: scene.fog.near, far: scene.fog.far }; scene.fog = null; }
+        } else if (savedFog) { scene.fog = new THREE.Fog(S.fogColor || 0x0c0e12, savedFog.near, savedFog.far); savedFog = null; }
+    });
+
+    document.getElementById('wz-sky')?.addEventListener('input', (e) => { S.skyColor = e.target.value; applyWorld(); });
+    document.getElementById('wz-fogc')?.addEventListener('input', (e) => { S.fogColor = e.target.value; applyWorld(); });
+    document.getElementById('wz-fogd')?.addEventListener('input', () => applyWorld());
+    document.getElementById('wz-fogf')?.addEventListener('input', () => applyWorld());
+    document.getElementById('wz-aint')?.addEventListener('input', () => applyWorld());
+    document.getElementById('wz-dlint')?.addEventListener('input', () => applyWorld());
+    document.getElementById('wz-acol')?.addEventListener('input', () => applyWorld());
+    document.getElementById('wz-fcol')?.addEventListener('input', (e) => { S.floorColor = e.target.value; applyWorld(); });
+
+    document.getElementById('wz-sky-reset')?.addEventListener('click', () => {
+        S.skyColor = '#0c0e12'; S.fogColor = '#0c0e12'; S.fogDensity = 25; S.fogFar = 110;
+        S.floorColor = '#111318'; S.ambientIntensity = 0.5; S.dirLightIntensity = 0.7;
+        document.getElementById('wz-sky').value = S.skyColor;
+        document.getElementById('wz-fogc').value = S.fogColor;
+        document.getElementById('wz-fogd').value = S.fogDensity;
+        document.getElementById('wz-fogf').value = S.fogFar;
+        document.getElementById('wz-fcol').value = S.floorColor;
+        document.getElementById('wz-aint').value = S.ambientIntensity;
+        document.getElementById('wz-dlint').value = S.dirLightIntensity;
+        document.getElementById('wz-fogdv').textContent = S.fogDensity;
+        document.getElementById('wz-fogfv').textContent = S.fogFar;
+        document.getElementById('wz-aintv').textContent = S.ambientIntensity;
+        document.getElementById('wz-dlintv').textContent = S.dirLightIntensity;
+        applyWorld();
+    });
+
+    document.getElementById('wz-light-reset')?.addEventListener('click', () => {
+        S.ambientIntensity = 0.5; S.dirLightIntensity = 0.7;
+        document.getElementById('wz-aint').value = 0.5;
+        document.getElementById('wz-dlint').value = 0.7;
+        document.getElementById('wz-aintv').textContent = '0.5';
+        document.getElementById('wz-dlintv').textContent = '0.7';
+        applyWorld();
+    });
+
+    // Teleport
+    document.getElementById('wz-tp-near')?.addEventListener('click', tpNearestBot);
+    document.getElementById('wz-tp-center')?.addEventListener('click', () => { camera.position.set(0, 1.7, 0); });
+    document.getElementById('wz-tp-fwd')?.addEventListener('click', () => { const d = new THREE.Vector3(); camera.getWorldDirection(d); d.y = 0; d.normalize(); camera.position.addScaledVector(d, 20); });
+    document.getElementById('wz-tp-rand')?.addEventListener('click', tpRandom);
+
+    // Spawn
+    document.getElementById('wz-sp-ak')?.addEventListener('click', () => { if (window.spawnWeaponAtPlayer) window.spawnWeaponAtPlayer(); });
+    document.getElementById('wz-sp-ammo')?.addEventListener('click', () => { if (window.spawnAmmoAtPlayer) window.spawnAmmoAtPlayer(); });
+    document.getElementById('wz-sp-plate')?.addEventListener('click', () => { if (window.spawnPlateAtPlayer) window.spawnPlateAtPlayer(); });
+    document.getElementById('wz-sp-stim')?.addEventListener('click', () => { if (window.spawnStimulantAtPlayer) window.spawnStimulantAtPlayer(); });
+    document.getElementById('wz-sp-bot')?.addEventListener('click', () => { if (window.spawnBot) window.spawnBot(); });
+    document.getElementById('wz-sp-bot5')?.addEventListener('click', () => { for (let i = 0; i < 5; i++) { if (window.spawnBot) window.spawnBot(); } });
+
+    document.getElementById('wz-killall')?.addEventListener('click', () => {
+        const bots = getBots();
+        bots.forEach(bot => {
+            bot.position.y = -500;
+            const plate = bot.getObjectByName('botPlateVisual');
+            if (plate) plate.visible = false;
+        });
+    });
+
+    document.getElementById('wz-tpbots')?.addEventListener('click', () => {
+        const bots = getBots();
+        const fwd = new THREE.Vector3();
+        camera.getWorldDirection(fwd);
+        fwd.y = 0;
+        fwd.normalize();
+        bots.forEach((bot, i) => {
+            const angle = (i / bots.length) * Math.PI * 2;
+            bot.position.x = camera.position.x + Math.cos(angle) * 3;
+            bot.position.z = camera.position.z + Math.sin(angle) * 3;
+            bot.position.y = 0;
+        });
+    });
+
+    root.querySelectorAll('[data-skin]').forEach((btn) => {
+        btn.addEventListener('click', () => applySkin(btn.dataset.skin));
+    });
+
+    // Keyboard
+    const onKeyDown = (e) => {
+        pKeys[e.code] = true;
+        if (e.code === 'KeyF' && !e.repeat) {
+            S.fly = !S.fly;
+            const lbl = document.getElementById('wz-fly');
+            if (lbl) { lbl.textContent = S.fly ? 'ON' : 'OFF'; lbl.className = S.fly ? 'wz-badge on' : 'wz-badge off'; }
+        }
+        if (e.code === 'F10' && !e.repeat) {
+            e.preventDefault();
+            document.getElementById('wz-p')?.classList.toggle('hidden');
+        }
+        if (e.code === 'KeyT' && !e.repeat) {
+            S.triggerbot = !S.triggerbot;
+            const el = document.getElementById('wz-trig');
+            if (el) el.checked = S.triggerbot;
+        }
+    };
+    const onKeyUp = (e) => { pKeys[e.code] = false; };
+    const onMouseDown = (e) => { if (e.button === 2) rightMouseDown = true; if (e.button === 0) leftMouseDown = true; };
+    const onMouseUp = (e) => { if (e.button === 2) rightMouseDown = false; if (e.button === 0) leftMouseDown = false; };
+    const onCtx = (e) => { if (S.aim || S.triggerbot) e.preventDefault(); };
+
+    document.addEventListener('keydown', onKeyDown);
+    document.addEventListener('keyup', onKeyUp);
+    document.addEventListener('mousedown', onMouseDown);
+    document.addEventListener('mouseup', onMouseUp);
+    document.addEventListener('contextmenu', onCtx);
+
+    // Tabs
+    root.querySelectorAll('.wz-tb').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            root.querySelectorAll('.wz-tb').forEach((t) => t.classList.remove('active'));
+            root.querySelectorAll('.wz-pg').forEach((p) => p.classList.remove('active'));
+            btn.classList.add('active');
+            const pg = root.querySelector('#' + btn.dataset.p);
+            if (pg) pg.classList.add('active');
+        });
+    });
+
+    // Drag
+    const panel = root.querySelector('#wz-p');
+    const header = root.querySelector('#wz-h');
+    header.addEventListener('mousedown', (e) => {
+        if (e.target.id === 'wz-x') return;
+        dragging = true;
+        dragX = e.clientX - panel.offsetLeft;
+        dragY = e.clientY - panel.offsetTop;
+    });
+    window.addEventListener('mousemove', (e) => { if (!dragging) return; panel.style.left = (e.clientX - dragX) + 'px'; panel.style.top = (e.clientY - dragY) + 'px'; });
+    window.addEventListener('mouseup', () => { dragging = false; });
+
+    // ====================== CLEANUP ======================
+
+    function cleanup() {
+        cancelAnimationFrame(animId);
+
+        document.removeEventListener('keydown', onKeyDown);
+        document.removeEventListener('keyup', onKeyUp);
+        document.removeEventListener('mousedown', onMouseDown);
+        document.removeEventListener('mouseup', onMouseUp);
+        document.removeEventListener('contextmenu', onCtx);
+
+        espHelpers.forEach((h) => scene.remove(h));
+        espHelpers.clear();
+        espLineObjs.forEach((l) => scene.remove(l));
+        espLineObjs.length = 0;
+        snapLineObjs.forEach((l) => scene.remove(l));
+        snapLineObjs.length = 0;
+        espHealthEls.forEach((el) => el.remove());
+        espHealthEls.length = 0;
+
+        toggleWallhack(false);
+        toggleFullbright(false);
+        toggleNightMode(false);
+        toggleNightVision(false);
+
+        if (tpCamHelper) { scene.remove(tpCamHelper); tpCamHelper = null; }
+        if (radarCanvas) { radarCanvas.remove(); radarCanvas = null; }
+        if (nvOverlay) { nvOverlay.remove(); nvOverlay = null; }
+        if (hitMarkerEl) { hitMarkerEl.remove(); hitMarkerEl = null; }
+        if (speedLinesEl) { speedLinesEl.remove(); speedLinesEl = null; }
+
+        origBotScale.forEach((scale, obj) => { obj.scale.copy(scale); });
+        origBotScale.clear();
+
+        document.body.style.filter = '';
+
+        if (triggerActive) {
+            document.dispatchEvent(new MouseEvent('mouseup', { button: 0 }));
+            triggerActive = false;
+        }
+
+        root.remove();
+        delete window.__wzPanelCleanup;
+    }
+
+    root.querySelector('#wz-x')?.addEventListener('click', cleanup);
+    window.__wzPanelCleanup = cleanup;
+
+    createHitMarker();
+    createSpeedLines();
+    loop();
+
+    'Panel v5 ULTIMATE charge : F10 toggle, T triggerbot, F fly.';
+})();
